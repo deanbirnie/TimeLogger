@@ -1,0 +1,16 @@
+# Example CSV for JIRA Worklog Import
+# This file shows the expected structure for the time logging script.
+# The script:
+# - Ignores the first 4 rows (including this comment block)
+# - Extracts:
+#     - Time spent from column C (`duration`)
+#     - Date from column D and start time from column E to form the datetime
+#     - Description from column G (removes everything after and including the `#`)
+#     - JIRA issue key from column I (expects only one tag, like `#JIRA-123`)
+# - Skips columns like `subtotals`, `tag_groups`, `stop`, `user`, etc.
+# - Assumes durations are in HH:MM format and time is 24-hour clock
+
+subtotals,tag_groups,duration,date,start,stop,description,user,tags
+0:00,Total,,,,,,,
+,,,,,,,,
+,,0:23,09-07-2025,08:30,08:53,"Testing the login flow #JIRA-123",user,#JIRA-123
