@@ -4,12 +4,12 @@ A script designed to accept a CSV file from [TimeTagger](https://github.com/alma
 
 ## Pre-Requisites
 
-This intended to be a CLI script executed from WSL on Windows as this is my personally preffered method. To adapt it to your needs you will need to change the script to accept your preffered input file path (the report from TimeTagger) and adapt the execution process to your specific environment, for example, if you wish to execute the script from CMD or Powershell.
+This intended to be a CLI script executed from WSL on Windows as this is my personally preferred method. To adapt it to your needs you will need to change the script to accept your preffered input file path (the report from TimeTagger) and adapt the execution process to your specific environment, for example, if you wish to execute the script from CMD or Powershell.
 
 Required:
  - Python >= 3.10
  - WSL (Windows Subsytem for Linux) version 2
- - [uv](https://docs.astral.sh/uv/) (Tooling for Python to manage dependancies & launch the script) 
+ - [uv](https://docs.astral.sh/uv/) (Tooling for Python to manage dependencies & launch the script) 
 
 ## Installation
 
@@ -19,13 +19,13 @@ CD into your desired directory:
 Clone the repo:
 `git clone https://github.com/deanbirnie/TimeLogger.git`
 
-Edit the .env.example file so it contains your required cinfoguration information and rename it to '.env':
+Edit the .env.example file so it contains your required configuration information and rename it to '.env':
 `mv .env.example .env`
 
 Create the virtual environment which isolates this Python project from others on your machine:
 `uv venv`
 
-We can now setup our shell to alias a command of our choosing. I've chosen `log_time` as my command and `nano` as my text editor for simplicty.
+We can now setup our shell to alias a command of our choosing. I've chosen `log_time` as my command and `nano` as my text editor for simplicity.
 First edit bash config (or your shell env of choice):
 `nano ~/.bashrc`
 
@@ -45,7 +45,7 @@ Finally, reload your shell:
 
 Once you've completed the installation instructions, you can run the script from WSL:
 
-First download the time report from TimeTagger or create a CSV file according the the CSV example in the repo.
+First download the time report from TimeTagger or create a CSV file according to the CSV example in the repo.
 
 Then right click on the file in Windows File Explorer wherever it was downloaded to. Select "Copy as path".
 
