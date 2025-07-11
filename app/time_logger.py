@@ -1,22 +1,36 @@
 import csv
+import json
+import os
+import sys
+
 import requests
 from requests.auth import HTTPBasicAuth
-import json
-import sys
 from dotenv import load_dotenv
-import os
 
 
 def clean_description(description: str) -> str:
-    """Sanitizes the description by removing any tags"""
+    """
+    Descriptions include any tags by default and they need to be stripped. Splits into multiple strings using '#'. Strips trailing spaces.
+
+    :param description: A work log description item. Output from TimeTagger defaults to the description plus any tags for the item. Example: "This is a description. #tag-123".
+    :type description: str
+
+    :return: Cleaned description string.
+    :rtype: str
+    """
+    if not isinstance(description, str):
+        raise ValueError("Work log description should be a string.")
     tag_split = description.split("#")
     tagless_description = tag_split[0]
-    # print(tagless_description)
+    clean_description = tagless_description.rstrip()
 
-    return tagless_description
+    return clean_description
 
 
 def create_datetime(date, started_time):
+    """
+    Takes
+    """
     date_split = date.split("-")
     time_split = started_time.split(":")
     # JIRA expects EU/UK time so subtract an hour (careful if clocks go back)
