@@ -63,3 +63,8 @@ Each item is logged using the JIRA REST API and there is some reporting to ensur
 Check your output carefully as the script will inform you of any items that JIRA rejected. The status code 201 is returned for success, any other status code will output an error or a warning for you to resolve manually or fix and run again. Be sure to remove any work items previously logged so as to avoid duplicates.
 
 Once complete, you can close the WSL terminal/shell.
+
+
+## Future Features
+ - Implement adding invalid work log items to a file and remind user each time the program runs of items that have yet to be logged from the past. Case in point would be if a JIRA issue hasn't yet been created but the user has captured the time and given it a description.
+ - Better exception handling.
