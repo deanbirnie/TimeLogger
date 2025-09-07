@@ -49,8 +49,11 @@ def create_time_spent(time_spent):
     return hours_to_secs + mins_to_secs
 
 
-def create_issue_str(issue):
-    return issue.strip("#")
+def create_issue_str(issue_str):
+    issue = issue_str.strip("#")
+    # if issue == "untagged":
+    #     raise Exception("No JIRA issue for this item.")
+    return issue
 
 def print_list(i_list):
     work_str = ""
@@ -79,6 +82,7 @@ def create_report(time_data):
             not jira_issue or
             jira_issue == "" or
             jira_issue == None or
+            jira_issue == "untagged" or
             started == None
         ):
             invalid_list.append(data)
@@ -162,15 +166,18 @@ def build_data(time_file_path: str) -> None:
         # This loop logs the time
         row_count = 0
         for row in reader:
-            if row_count < 4:
+            try:
+                if row_count < 4:
+                    row_count += 1
+                    continue
                 row_count += 1
-                continue
-            row_count += 1
 
-            time_spent = create_time_spent(row[2])
-            started = create_datetime(row[3], row[4])
-            description = clean_description(row[6])
-            jira_issue = create_issue_str(row[8])
+                time_spent = create_time_spent(row[2])
+                started = create_datetime(row[3], row[4])
+                description = clean_description(row[6])
+                jira_issue = create_issue_str(row[8])
+            except:
+                pass
 
             row_list = [time_spent, started, description, jira_issue]
             time_data.append(row_list)
