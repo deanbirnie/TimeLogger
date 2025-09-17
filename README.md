@@ -68,3 +68,6 @@ Once complete, you can close the WSL terminal/shell.
 ## Future Features
  - Implement adding invalid work log items to a file and remind user each time the program runs of items that have yet to be logged from the past. Case in point would be if a JIRA issue hasn't yet been created but the user has captured the time and given it a description.
  - Better exception handling.
+ - Args parsing so the file path can be inserted as an argument to the bash alias > $log_time "path\to\file\TimeFile.csv"
+ - Use tabs to better space out console output for clarity and neatness.
+ - Include total time logged for each day or total time logged in the current run.
