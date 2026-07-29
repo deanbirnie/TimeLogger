@@ -13,28 +13,53 @@ Required:
 
 ## Installation
 
+### Quick install (recommended)
+
 CD into your desired directory:
 `cd /path/to/directory`
 
-Clone the repo:
-`git clone https://github.com/deanbirnie/TimeLogger.git`
+Clone the repo and enter it:
+```bash
+git clone https://github.com/deanbirnie/TimeLogger.git
+cd TimeLogger
+```
 
-Edit the .env.example file so it contains your required configuration information and rename it to '.env':
-`mv .env.example .env`
+Run the installer:
+`./install.sh`
 
-Create the virtual environment which isolates this Python project from others on your machine:
-`uv venv`
+The script checks prerequisites, creates the virtual environment and installs
+dependencies, creates a `.env` from `.env.example` for you to fill in, and adds a
+shell alias (default `logtime`) that runs the tool from anywhere. It is safe to
+re-run and can be pointed at a different shell:
 
-We can now setup our shell to alias a command of our choosing. I've chosen `log_time` as my command and `nano` as my text editor for simplicity.
-First edit bash config (or your shell env of choice):
-`nano ~/.bashrc`
+```bash
+./install.sh --command logtime      # choose the alias/command name
+./install.sh --rc ~/.zshrc          # target a specific shell rc file
+./install.sh --no-alias             # set up the project without touching your shell rc
+./install.sh --help                 # see all options
+```
 
-Next, at the bottom, add the bash alias:
-``` bash
-logjira() {
-    source /path/to/your/project/.venv/bin/activate
-    uv run /path/to/your/project/time_logger.py "$@"
-    deactivate
+After it finishes, edit `.env` with your JIRA details, then reload your shell:
+`source ~/.bashrc`   (or `~/.zshrc`)
+
+You can now run the tool with your chosen command (e.g. `logtime`).
+
+### Manual install
+
+If you'd rather set things up by hand:
+
+Create the virtual environment and install dependencies:
+`uv sync`
+
+Copy the example config and edit it with your details:
+`cp .env.example .env`
+
+Add an alias to your shell config (`~/.bashrc`, `~/.zshrc`, ...). Note the script
+lives at `app/time_logger.py`, and `uv run --project` means you don't need to
+activate the venv manually:
+```bash
+logtime() {
+    uv run --project /path/to/your/project /path/to/your/project/app/time_logger.py "$@"
 }
 ```
 
@@ -49,8 +74,8 @@ First download the time report from TimeTagger or create a CSV file according to
 
 Then right click on the file in Windows File Explorer wherever it was downloaded to. Select "Copy as path".
 
-Open WSL and use the alias command you configured above:
-`log time`
+Open WSL and use the alias command you configured above (e.g. `logtime`):
+`logtime`
 
 Then paste the Windows file path when prompted.
 
