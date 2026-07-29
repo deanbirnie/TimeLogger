@@ -81,13 +81,29 @@ Then paste the Windows file path when prompted.
 
 The script will analyse and validate all your work items. If there are any invalid items it will warn you accordingly, the script will not attempt to log these.
 
-The valid work items will be reported (if any exist) and you will be prompted to continue or cancel. "n" cancels the process while any other key will continue.
+The valid work items are then split into two groups: items that were logged on a previous run (skipped) and items that are new. Only the new items are logged. You'll be prompted to continue or cancel — the prompt is `(y/N)`, so `y`/`yes` continues and anything else (including just pressing Enter) cancels.
 
 Each item is logged using the JIRA REST API and there is some reporting to ensure that each item was logged.
 
-Check your output carefully as the script will inform you of any items that JIRA rejected. The status code 201 is returned for success, any other status code will output an error or a warning for you to resolve manually or fix and run again. Be sure to remove any work items previously logged so as to avoid duplicates.
+Check your output carefully as the script will inform you of any items that JIRA rejected. The status code 201 is returned for success, any other status code will output an error or a warning for you to resolve manually or fix and run again.
 
 Once complete, you can close the WSL terminal/shell.
+
+### Re-running a file & de-duplication
+
+You can safely re-run the same day's file multiple times. Every worklog that JIRA accepts (HTTP 201) is recorded in a local ledger (`state/logged.json` by default), and on subsequent runs those items are skipped — so if you add a few more entries to the same CSV later in the day and re-run, only the newly added items are logged.
+
+An item's identity is `JIRA issue + start time + duration`; the description is deliberately excluded, so fixing a typo in a description and re-running will **not** create a duplicate worklog.
+
+Items are recorded one at a time, only after JIRA confirms them, so a failed item is retried on the next run and an interrupted run never double-logs the items that already succeeded.
+
+If you ever genuinely need to re-log something the ledger already knows about, edit or delete the matching entry in `state/logged.json` (it's plain JSON) and run again. Deleting the whole file resets all history.
+
+### Archiving
+
+Each run that reaches the logging stage copies the source CSV into an archive directory (`archive/` by default), timestamp-prefixed (e.g. `2026-07-29T14-03-05_TimeFile.csv`), so you keep a history of exactly what was processed. The original downloaded file is left untouched.
+
+Both locations can be overridden in `.env` via `LEDGER_PATH` and `ARCHIVE_DIR` (see `.env.example`). Both `state/` and `archive/` are git-ignored.
 
 
 ## Future Features

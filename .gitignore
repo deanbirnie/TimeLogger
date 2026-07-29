@@ -14,3 +14,7 @@ wheels/
 main.py
 
 .python-version
+
+# TimeLogger runtime state and archived CSVs
+state/
+archive/
