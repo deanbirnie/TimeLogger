@@ -7,6 +7,14 @@ import requests
 from requests.auth import HTTPBasicAuth
 from dotenv import load_dotenv
 
+try:
+    # When imported as a package (e.g. tests: `from app.time_logger import ...`).
+    from app import ledger
+except ImportError:
+    # When run directly as a script (`uv run app/time_logger.py`), the script's
+    # own directory is on sys.path, so ledger.py is importable by bare name.
+    import ledger
+
 
 def clean_description(description: str) -> str:
     """
@@ -199,33 +207,62 @@ def find_file(win_path_to_file):
 
 
 if __name__ == "__main__":
+    spacer = "-" * 100
+
     win_file_path = input("Please paste the path to the file you wish to log to JIRA: ")
     clean_file_path = find_file(win_file_path)
     data = build_data(clean_file_path)
     report, valid_list = create_report(data)
     print(report)
-    if input("Would you like to continue logging time? (Y/n)\t") == "n":
-        sys.exit()
-    for work_item in valid_list:
-        time_spent = work_item[0]
-        started = work_item[1]
-        description = work_item[2]
-        jira_issue = work_item[3]
-        response = log_time(jira_issue, description, started, time_spent)
 
-        if response.status_code == 201:
-            print(f"[{jira_issue}] Time spent: {(time_spent / 60)}m -> ✅ Successful")
-        else:
-            print(f"❌ Failed to log time to {jira_issue} (Status {response.status_code})")
-            try:
-                error_detail = response.json()
-                print("🔍 Error detail:")
-                print(json.dumps(error_detail, indent=2))
-            except json.JSONDecodeError:
-                print("⚠️ Could not decode error response. Raw content:")
-                print(response.text)
+    # Split the valid items against the ledger so re-running a file only logs
+    # items that haven't already been accepted by JIRA.
+    ledger_path = ledger.get_ledger_path()
+    logged_ledger = ledger.load_ledger(ledger_path)
+    new_items, already_logged = ledger.filter_new(logged_ledger, valid_list)
 
-    print("-" * 100)
+    if already_logged:
+        print(f"The following items were logged previously and will be skipped:\n{print_list(already_logged)}\n{spacer}")
+
+    if not new_items:
+        print("No new items to log — everything valid in this file has already been logged.")
+    else:
+        print(f"The following {len(new_items)} item(s) are new and will be logged:\n{print_list(new_items)}\n{spacer}")
+        answer = input(f"Would you like to continue logging {len(new_items)} new item(s)? (y/N)\t").strip().lower()
+        if answer not in ("y", "yes"):
+            print("Cancelled — nothing was logged.")
+            sys.exit()
+
+        source_name = os.path.basename(clean_file_path)
+        for work_item in new_items:
+            time_spent = work_item[0]
+            started = work_item[1]
+            description = work_item[2]
+            jira_issue = work_item[3]
+            response = log_time(jira_issue, description, started, time_spent)
+
+            if response.status_code == 201:
+                # Record only on success, immediately, so a crash never double-logs.
+                ledger.record_logged(ledger_path, logged_ledger, work_item, source_name)
+                print(f"[{jira_issue}] Time spent: {(time_spent / 60)}m -> ✅ Successful")
+            else:
+                print(f"❌ Failed to log time to {jira_issue} (Status {response.status_code})")
+                try:
+                    error_detail = response.json()
+                    print("🔍 Error detail:")
+                    print(json.dumps(error_detail, indent=2))
+                except json.JSONDecodeError:
+                    print("⚠️ Could not decode error response. Raw content:")
+                    print(response.text)
+
+    # Archive the processed file for history (every run that reaches this stage).
+    try:
+        archived_path = ledger.archive_file(clean_file_path, ledger.get_archive_dir())
+        print(f"📁 Archived source file to {archived_path}")
+    except OSError as exc:
+        print(f"⚠️ Could not archive source file: {exc}")
+
+    print(spacer)
     print("Time logging completed.")
 
 """
