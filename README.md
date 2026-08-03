@@ -105,6 +105,21 @@ Each run that reaches the logging stage copies the source CSV into an archive di
 
 Both locations can be overridden in `.env` via `LEDGER_PATH` and `ARCHIVE_DIR` (see `.env.example`). Both `state/` and `archive/` are git-ignored.
 
+### Using across multiple devices
+
+The ledger is per-machine, so a second device won't know what the first has already logged. The file that matters for de-duplication is the **ledger** (`state/logged.json`), not the archive.
+
+- **Manual copy:** after logging on one device, copy its `state/logged.json` to the other device (same location, or wherever `LEDGER_PATH` points). Only copy when no run is in progress, so you don't grab a half-written file.
+- **File sync:** point `LEDGER_PATH` at a synced folder (OneDrive, Dropbox, a network share) on every device so they share one ledger automatically:
+
+  ```
+  LEDGER_PATH="/mnt/c/Users/you/OneDrive/timelogger/logged.json"
+  ```
+
+  This works well for a single user; just avoid logging from two devices at the exact same moment, which could cause a sync conflict.
+
+A future option (see below) is to have the tool ask JIRA directly whether a worklog already exists, which would remove the need to share the ledger at all.
+
 
 ## Future Features
  - Implement adding invalid work log items to a file and remind user each time the program runs of items that have yet to be logged from the past. Case in point would be if a JIRA issue hasn't yet been created but the user has captured the time and given it a description.
@@ -112,3 +127,4 @@ Both locations can be overridden in `.env` via `LEDGER_PATH` and `ARCHIVE_DIR` (
  - Args parsing so the file path can be inserted as an argument to the bash alias > $log_time "path\to\file\TimeFile.csv"
  - Use tabs to better space out console output for clarity and neatness.
  - Include total time logged for each day or total time logged in the current run.
+ - Cross-device de-duplication: before creating a worklog, check JIRA directly (via the worklog API) for a matching entry, so logging from multiple devices never creates duplicates without needing to share the local ledger.
