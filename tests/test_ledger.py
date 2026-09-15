@@ -4,6 +4,9 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pymysql
 
 from app import ledger
 
@@ -11,6 +14,17 @@ from app import ledger
 # A work item is [time_spent_seconds, started, description, jira_issue].
 ITEM_A = [1380, "2025-07-09T08:30:00.000+0000", "Testing the login flow", "JIRA-123"]
 ITEM_B = [2700, "2025-07-10T10:00:00.000+0000", "Second task", "JIRA-456"]
+
+
+def _fake_conn(fetchall_rows=None):
+    """A MagicMock standing in for a pymysql connection, supporting the
+    ``with conn.cursor() as cursor:`` pattern used throughout ledger.py."""
+    cursor = MagicMock()
+    cursor.fetchall.return_value = fetchall_rows or []
+    cursor.rowcount = 1
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    return conn, cursor
 
 
 class TestFingerprint(unittest.TestCase):
@@ -34,44 +48,89 @@ class TestFingerprint(unittest.TestCase):
         self.assertNotEqual(ledger.fingerprint(ITEM_A), ledger.fingerprint(other))
 
 
-class TestLedgerIO(unittest.TestCase):
+class TestConnect(unittest.TestCase):
+    def test_raises_clear_error_when_unreachable(self):
+        with patch("app.ledger.pymysql.connect", side_effect=pymysql.OperationalError("boom")):
+            with self.assertRaises(ledger.DatabaseConnectionError) as cm:
+                ledger.connect()
+        self.assertIn("DB connection failed", str(cm.exception))
+
+    def test_returns_connection_on_success(self):
+        fake = MagicMock()
+        with patch("app.ledger.pymysql.connect", return_value=fake) as mock_connect:
+            result = ledger.connect()
+        self.assertIs(result, fake)
+        self.assertTrue(mock_connect.call_args.kwargs.get("autocommit"))
+
+
+class TestGetDbConfig(unittest.TestCase):
+    ENV_KEYS = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
+
     def setUp(self):
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.path = Path(self.tmpdir.name) / "state" / "logged.json"
+        self._saved = {k: os.environ.get(k) for k in self.ENV_KEYS}
+        for k in self.ENV_KEYS:
+            os.environ.pop(k, None)
 
     def tearDown(self):
-        self.tmpdir.cleanup()
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
-    def test_load_missing_returns_empty(self):
-        self.assertEqual(ledger.load_ledger(self.path), {})
+    def test_reads_env_vars(self):
+        os.environ["DB_HOST"] = "dbhost"
+        os.environ["DB_PORT"] = "3307"
+        os.environ["DB_NAME"] = "tl"
+        os.environ["DB_USER"] = "tluser"
+        os.environ["DB_PASSWORD"] = "secret"
+        config = ledger.get_db_config()
+        self.assertEqual(config, {
+            "host": "dbhost", "port": 3307, "database": "tl",
+            "user": "tluser", "password": "secret",
+        })
 
-    def test_load_corrupt_returns_empty(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text("{ this is not valid json", encoding="utf-8")
-        self.assertEqual(ledger.load_ledger(self.path), {})
+    def test_defaults_port_to_3306(self):
+        os.environ["DB_HOST"] = "dbhost"
+        config = ledger.get_db_config()
+        self.assertEqual(config["port"], 3306)
 
-    def test_record_and_reload(self):
+
+class TestLoadLedger(unittest.TestCase):
+    def test_builds_dict_keyed_by_fingerprint(self):
+        fp = ledger.fingerprint(ITEM_A)
+        logged_at = datetime(2026, 7, 29, 18, 28, 41)
+        conn, cursor = _fake_conn(fetchall_rows=[
+            (fp, "JIRA-123", ITEM_A[1], 1380, "Testing the login flow", "file.csv", logged_at),
+        ])
+        result = ledger.load_ledger(conn)
+        self.assertEqual(list(result.keys()), [fp])
+        self.assertEqual(result[fp]["issue"], "JIRA-123")
+        self.assertEqual(result[fp]["timeSpentSeconds"], 1380)
+        self.assertEqual(result[fp]["logged_at"], "2026-07-29T18:28:41")
+
+    def test_empty_table_returns_empty_dict(self):
+        conn, _cursor = _fake_conn(fetchall_rows=[])
+        self.assertEqual(ledger.load_ledger(conn), {})
+
+
+class TestRecordLogged(unittest.TestCase):
+    def test_inserts_and_updates_in_memory_ledger(self):
+        conn, cursor = _fake_conn()
         book = {}
-        ledger.record_logged(self.path, book, ITEM_A, "file.csv")
-        self.assertTrue(self.path.exists())
+        ledger.record_logged(conn, book, ITEM_A, "file.csv")
 
-        reloaded = ledger.load_ledger(self.path)
-        self.assertIn(ledger.fingerprint(ITEM_A), reloaded)
-        entry = reloaded[ledger.fingerprint(ITEM_A)]
-        self.assertEqual(entry["issue"], "JIRA-123")
-        self.assertEqual(entry["timeSpentSeconds"], 1380)
-        self.assertEqual(entry["source"], "file.csv")
+        cursor.execute.assert_called_once()
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("INSERT IGNORE INTO logged_worklogs", sql)
+        self.assertEqual(params[0], ledger.fingerprint(ITEM_A))
+        self.assertEqual(params[1], "JIRA-123")
+        self.assertEqual(params[3], 1380)
+        # A tz-aware logged_at would break MySQL's DATETIME column.
+        self.assertIsNone(params[6].tzinfo)
 
-    def test_record_is_atomic_no_tmp_left(self):
-        book = {}
-        ledger.record_logged(self.path, book, ITEM_A)
-        leftovers = list(self.path.parent.glob("*.tmp"))
-        self.assertEqual(leftovers, [])
-
-    def test_save_creates_parent_dirs(self):
-        ledger.save_ledger(self.path, {"x": {"issue": "JIRA-1"}})
-        self.assertTrue(self.path.exists())
-        self.assertEqual(json.loads(self.path.read_text())["x"]["issue"], "JIRA-1")
+        self.assertIn(ledger.fingerprint(ITEM_A), book)
+        self.assertEqual(book[ledger.fingerprint(ITEM_A)]["issue"], "JIRA-123")
 
 
 class TestFilterNew(unittest.TestCase):
@@ -90,6 +149,27 @@ class TestFilterNew(unittest.TestCase):
         book = {ledger.fingerprint(ITEM_A): {}}
         self.assertTrue(ledger.is_logged(book, ITEM_A))
         self.assertFalse(ledger.is_logged(book, ITEM_B))
+
+
+class TestLegacyJsonLedger(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmpdir.name) / "logged.json"
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_missing_file_returns_empty(self):
+        self.assertEqual(ledger.load_legacy_json_ledger(self.path), {})
+
+    def test_corrupt_file_returns_empty(self):
+        self.path.write_text("{ not valid json", encoding="utf-8")
+        self.assertEqual(ledger.load_legacy_json_ledger(self.path), {})
+
+    def test_reads_existing_entries(self):
+        self.path.write_text(json.dumps({"abc123": {"issue": "JIRA-1"}}), encoding="utf-8")
+        result = ledger.load_legacy_json_ledger(self.path)
+        self.assertEqual(result, {"abc123": {"issue": "JIRA-1"}})
 
 
 class TestArchive(unittest.TestCase):
@@ -133,28 +213,19 @@ class TestArchive(unittest.TestCase):
 
 class TestConfigPaths(unittest.TestCase):
     def _clear(self):
-        for key in ("LEDGER_PATH", "ARCHIVE_DIR"):
-            os.environ.pop(key, None)
+        os.environ.pop("ARCHIVE_DIR", None)
 
     def setUp(self):
-        self._saved = {k: os.environ.get(k) for k in ("LEDGER_PATH", "ARCHIVE_DIR")}
+        self._saved = os.environ.get("ARCHIVE_DIR")
         self._clear()
 
     def tearDown(self):
         self._clear()
-        for k, v in self._saved.items():
-            if v is not None:
-                os.environ[k] = v
-
-    def test_default_ledger_path(self):
-        self.assertEqual(ledger.get_ledger_path(), ledger.project_root() / "state" / "logged.json")
+        if self._saved is not None:
+            os.environ["ARCHIVE_DIR"] = self._saved
 
     def test_default_archive_dir(self):
         self.assertEqual(ledger.get_archive_dir(), ledger.project_root() / "archive")
-
-    def test_env_override_ledger(self):
-        os.environ["LEDGER_PATH"] = "/custom/led.json"
-        self.assertEqual(ledger.get_ledger_path(), Path("/custom/led.json"))
 
     def test_env_override_archive(self):
         os.environ["ARCHIVE_DIR"] = "/custom/arch"

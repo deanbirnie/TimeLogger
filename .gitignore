@@ -15,6 +15,5 @@ main.py
 
 .python-version
 
-# TimeLogger runtime state and archived CSVs
-state/
+# TimeLogger archived CSVs
 archive/
