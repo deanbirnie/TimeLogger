@@ -73,11 +73,11 @@ The ledger of already-logged items (used to avoid logging the same worklog twice
 
 Against your MySQL/MariaDB server:
 
-1. Edit the password in `sql/01_create_database.sql`, then run it (as a user who can create databases/users):
+1. Edit the password in `sql/01_create_database.sql`, then run it (as an admin user, e.g. `root`, that can create databases/users):
    `mysql -u root -p < sql/01_create_database.sql`
-2. Create the table:
-   `mysql -u timelogger -p timelogger < sql/02_schema.sql`
-3. Set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` in your `.env` to match (see `.env.example`).
+2. Create the table — also as the admin user, **not** the `timelogger` user created above: that user is deliberately granted only `SELECT`/`INSERT`/`UPDATE` (never `CREATE`), so the running app can never alter its own schema.
+   `mysql -u root -p timelogger < sql/02_schema.sql`
+3. Set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` in your `.env` to match (see `.env.example`) — these should be the `timelogger` app user, not the admin user used above.
 
 Do this once per database (not per device) — every machine you log time from should point at the *same* server so they share one ledger. If the app can't reach the database when you run it, it stops immediately with a clear error rather than logging time it can't record.
 
