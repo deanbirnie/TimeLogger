@@ -209,6 +209,15 @@ def find_file(win_path_to_file):
 if __name__ == "__main__":
     spacer = "-" * 100
 
+    # Connect to the ledger database first and fail fast: logging without being
+    # able to record the result risks duplicate worklogs on the next run.
+    load_dotenv()
+    try:
+        db_conn = ledger.connect()
+    except ledger.DatabaseConnectionError as exc:
+        print(f"❌ {exc}")
+        sys.exit(1)
+
     win_file_path = input("Please paste the path to the file you wish to log to JIRA: ")
     clean_file_path = find_file(win_file_path)
     data = build_data(clean_file_path)
@@ -217,8 +226,7 @@ if __name__ == "__main__":
 
     # Split the valid items against the ledger so re-running a file only logs
     # items that haven't already been accepted by JIRA.
-    ledger_path = ledger.get_ledger_path()
-    logged_ledger = ledger.load_ledger(ledger_path)
+    logged_ledger = ledger.load_ledger(db_conn)
     new_items, already_logged = ledger.filter_new(logged_ledger, valid_list)
 
     if already_logged:
@@ -243,7 +251,7 @@ if __name__ == "__main__":
 
             if response.status_code == 201:
                 # Record only on success, immediately, so a crash never double-logs.
-                ledger.record_logged(ledger_path, logged_ledger, work_item, source_name)
+                ledger.record_logged(db_conn, logged_ledger, work_item, source_name)
                 print(f"[{jira_issue}] Time spent: {(time_spent / 60)}m -> ✅ Successful")
             else:
                 print(f"❌ Failed to log time to {jira_issue} (Status {response.status_code})")
@@ -261,6 +269,8 @@ if __name__ == "__main__":
         print(f"📁 Archived source file to {archived_path}")
     except OSError as exc:
         print(f"⚠️ Could not archive source file: {exc}")
+
+    db_conn.close()
 
     print(spacer)
     print("Time logging completed.")
