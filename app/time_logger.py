@@ -2,6 +2,7 @@ import csv
 import json
 import os
 import sys
+import textwrap
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -63,57 +64,134 @@ def create_issue_str(issue_str):
     #     raise Exception("No JIRA issue for this item.")
     return issue
 
-def print_list(i_list):
-    work_str = ""
-    for item in i_list:
-        str_to_print = f"[{item[3]}] - '{item[2]}': Time Spent -> {(item[0] / 60)}m, Started at: {item[1]}\n"
-        work_str += str_to_print
-    
-    if len(work_str) > 0:
-        return work_str
-    return ""
+REPORT_WIDTH = 78
 
-def create_report(time_data):
+
+def format_duration(seconds) -> str:
+    """Human-readable duration, e.g. '23m' or '1h 35m'."""
+    minutes = int(seconds) // 60
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    return f"{minutes}m"
+
+
+def format_started(started) -> str:
+    """
+    Display form of the JIRA 'started' timestamp, e.g. '2025-07-09 08:30'.
+
+    Deliberately lenient: a malformed timestamp (see BUGS.md B2-B4) is shown as
+    it actually is rather than hidden behind an exception.
+    """
+    if not started:
+        return ""
+    date_part, _, time_part = str(started).partition("T")
+    if not time_part:
+        return date_part
+    return f"{date_part} {':'.join(time_part.split(':')[:2])}"
+
+
+def classify_items(time_data):
+    """
+    Split parsed rows into (valid, invalid). Invalid items are never sent to JIRA.
+
+    :return: tuple(list, list)
+    """
     valid_list = []
     invalid_list = []
     for data in time_data:
-        time_spent = data[0]
-        started = data[1]
-        description = data[2]
-        jira_issue = data[3]        
+        time_spent, started, description, jira_issue = data[0], data[1], data[2], data[3]
 
         if (
-            time_spent <= 0 or
             not isinstance(time_spent, int) or
-            description == None or
-            description == "" or
+            time_spent <= 0 or
+            not description or
             not jira_issue or
-            jira_issue == "" or
-            jira_issue == None or
             jira_issue == "untagged" or
-            started == None
+            started is None
         ):
             invalid_list.append(data)
         else:
             valid_list.append(data)
 
-    title_spacer = "=" * 100
-    spacer = "-" * 100
+    return valid_list, invalid_list
 
-    report_intro = f"{title_spacer}\nLogging time\n{title_spacer}"
-    if len(invalid_list) == 0:
-        report_invalid = ""
-    else:
-        report_invalid = f"The following items are invalid and will not be logged:\n{print_list(invalid_list)}\n{spacer}\n"
 
-    if len(valid_list) == 0:
-        report_valid = ""
-    else:
-        report_valid = f"The following items will be logged:\n{print_list(valid_list)}\n{spacer}"
-    
-    report = f"{report_intro}\n{report_invalid}\n{report_valid}"
-    
-    return report, valid_list
+def render_items(items, indent="  ") -> list:
+    """
+    Render work items as aligned columns: issue, duration, start, description.
+
+    Column widths are sized to the items passed in, and the description comes
+    last (truncated if needed) so a long one can never push the other columns
+    out of alignment.
+    """
+    if not items:
+        return []
+
+    issue_width = max(len(str(item[3])) for item in items)
+    duration_width = max(len(format_duration(item[0])) for item in items)
+    started_width = max(len(format_started(item[1])) for item in items)
+    description_width = max(
+        20, REPORT_WIDTH - len(indent) - issue_width - duration_width - started_width - 6
+    )
+
+    lines = []
+    for item in items:
+        description = str(item[2])
+        if len(description) > description_width:
+            description = description[:description_width - 1] + "…"
+        lines.append(
+            f"{indent}{str(item[3]):<{issue_width}}  {format_duration(item[0]):>{duration_width}}  "
+            f"{format_started(item[1]):<{started_width}}  {description}"
+        )
+    return lines
+
+
+def render_section(title, items, note="") -> list:
+    """A titled, ruled block of items. Empty sections render as nothing at all."""
+    if not items:
+        return []
+    heading = f"{title} ({len(items)})"
+    if note:
+        heading += f"  -  {note}"
+    return [heading, "-" * REPORT_WIDTH, *render_items(items), ""]
+
+
+def render_report(source_name, invalid_items, already_logged, new_items) -> str:
+    """
+    The pre-flight report. Each item appears in exactly one section: invalid,
+    already logged, or to be logged.
+    """
+    lines = [
+        "=" * REPORT_WIDTH,
+        f"Time Logger  -  {source_name}",
+        "=" * REPORT_WIDTH,
+        "",
+    ]
+    lines += render_section("INVALID - will not be logged", invalid_items)
+    lines += render_section("ALREADY LOGGED - skipping", already_logged)
+    lines += render_section(
+        "TO LOG", new_items,
+        note=f"total {format_duration(sum(item[0] for item in new_items))}",
+    )
+    return "\n".join(lines)
+
+
+def describe_failure(response) -> str:
+    """Condense a JIRA error response into a single line."""
+    try:
+        detail = response.json()
+    except ValueError:
+        body = (response.text or "").strip().replace("\n", " ")
+        return body[:120] if body else "no response body"
+
+    if isinstance(detail, dict):
+        messages = detail.get("errorMessages") or []
+        field_errors = [f"{field}: {msg}" for field, msg in (detail.get("errors") or {}).items()]
+        combined = "; ".join([*messages, *field_errors])
+        if combined:
+            return combined[:200]
+    return str(detail)[:200]
 
 
 def log_time(issue, description, date_time, time_spent):
@@ -207,8 +285,6 @@ def find_file(win_path_to_file):
 
 
 if __name__ == "__main__":
-    spacer = "-" * 100
-
     # Connect to the ledger database first and fail fast: logging without being
     # able to record the result risks duplicate worklogs on the next run.
     load_dotenv()
@@ -220,28 +296,38 @@ if __name__ == "__main__":
 
     win_file_path = input("Please paste the path to the file you wish to log to JIRA: ")
     clean_file_path = find_file(win_file_path)
+    source_name = os.path.basename(clean_file_path)
+
     data = build_data(clean_file_path)
-    report, valid_list = create_report(data)
-    print(report)
+    valid_list, invalid_items = classify_items(data)
 
     # Split the valid items against the ledger so re-running a file only logs
     # items that haven't already been accepted by JIRA.
     logged_ledger = ledger.load_ledger(db_conn)
     new_items, already_logged = ledger.filter_new(logged_ledger, valid_list)
 
-    if already_logged:
-        print(f"The following items were logged previously and will be skipped:\n{print_list(already_logged)}\n{spacer}")
+    print()
+    print(render_report(source_name, invalid_items, already_logged, new_items))
 
     if not new_items:
-        print("No new items to log — everything valid in this file has already been logged.")
+        print("Nothing new to log - everything valid in this file is already logged.")
     else:
-        print(f"The following {len(new_items)} item(s) are new and will be logged:\n{print_list(new_items)}\n{spacer}")
-        answer = input(f"Would you like to continue logging {len(new_items)} new item(s)? (y/N)\t").strip().lower()
+        total_seconds = sum(item[0] for item in new_items)
+        answer = input(
+            f"Log {len(new_items)} item(s) totalling {format_duration(total_seconds)}? (y/N)  "
+        ).strip().lower()
         if answer not in ("y", "yes"):
-            print("Cancelled — nothing was logged.")
+            print("Cancelled - nothing was logged.")
+            db_conn.close()
             sys.exit()
 
-        source_name = os.path.basename(clean_file_path)
+        print()
+        print("-" * REPORT_WIDTH)
+        issue_width = max(len(str(item[3])) for item in new_items)
+        duration_width = max(len(format_duration(item[0])) for item in new_items)
+
+        logged_seconds = 0
+        failures = 0
         for work_item in new_items:
             time_spent = work_item[0]
             started = work_item[1]
@@ -249,31 +335,42 @@ if __name__ == "__main__":
             jira_issue = work_item[3]
             response = log_time(jira_issue, description, started, time_spent)
 
+            row = (f"  {str(jira_issue):<{issue_width}}  "
+                   f"{format_duration(time_spent):>{duration_width}}  ")
             if response.status_code == 201:
                 # Record only on success, immediately, so a crash never double-logs.
                 ledger.record_logged(db_conn, logged_ledger, work_item, source_name)
-                print(f"[{jira_issue}] Time spent: {(time_spent / 60)}m -> ✅ Successful")
+                logged_seconds += time_spent
+                print(f"{row}✅ Logged")
             else:
-                print(f"❌ Failed to log time to {jira_issue} (Status {response.status_code})")
-                try:
-                    error_detail = response.json()
-                    print("🔍 Error detail:")
-                    print(json.dumps(error_detail, indent=2))
-                except json.JSONDecodeError:
-                    print("⚠️ Could not decode error response. Raw content:")
-                    print(response.text)
+                failures += 1
+                status = f"❌ Failed ({response.status_code})"
+                reason = describe_failure(response)
+                inline = f"{row}{status} {reason}"
+                if len(inline) <= REPORT_WIDTH:
+                    print(inline)
+                else:
+                    # Keep the row within the report width without losing the
+                    # reason: wrap it onto indented continuation lines.
+                    print(f"{row}{status}")
+                    for line in textwrap.wrap(reason, width=REPORT_WIDTH - 6):
+                        print(f"      {line}")
+
+        print("-" * REPORT_WIDTH)
+        summary = (f"Logged {len(new_items) - failures} of {len(new_items)} item(s), "
+                   f"{format_duration(logged_seconds)} of {format_duration(total_seconds)}.")
+        if failures:
+            summary += f"  {failures} failed - fix and run again."
+        print(summary)
 
     # Archive the processed file for history (every run that reaches this stage).
     try:
         archived_path = ledger.archive_file(clean_file_path, ledger.get_archive_dir())
-        print(f"📁 Archived source file to {archived_path}")
+        print(f"📁 Archived to {archived_path}")
     except OSError as exc:
         print(f"⚠️ Could not archive source file: {exc}")
 
     db_conn.close()
-
-    print(spacer)
-    print("Time logging completed.")
 
 """
 JIRA Documentation found here:
