@@ -14,7 +14,17 @@ CREATE TABLE IF NOT EXISTS `logged_worklogs` (
     -- can be used to migrate/re-run safely without creating duplicates.
     `fingerprint` CHAR(40) NOT NULL,
 
+    -- Which fingerprint scheme produced the value above, so rows written by an
+    -- older scheme can be found and migrated. See app/ledger.py.
+    `fingerprint_version` TINYINT UNSIGNED NOT NULL DEFAULT 1,
+
     `jira_issue` VARCHAR(64) NOT NULL,
+
+    -- Canonical local wall-clock slot, 'YYYY-MM-DDTHH:MM'. This, not `started`,
+    -- is what the fingerprint hashes: it carries no UTC offset, so changing the
+    -- configured timezone or the timestamp format cannot change an item's
+    -- identity and invalidate the ledger.
+    `slot` CHAR(16) NOT NULL DEFAULT '',
 
     -- Stored as the exact string sent to JIRA's "started" field, not as a
     -- native DATETIME. Until BUGS.md items B2-B4 are fixed, this string can
@@ -30,5 +40,6 @@ CREATE TABLE IF NOT EXISTS `logged_worklogs` (
 
     PRIMARY KEY (`fingerprint`),
     INDEX `idx_jira_issue` (`jira_issue`),
-    INDEX `idx_logged_at` (`logged_at`)
+    INDEX `idx_logged_at` (`logged_at`),
+    INDEX `idx_slot` (`slot`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

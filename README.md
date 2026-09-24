@@ -81,6 +81,23 @@ Against your MySQL/MariaDB server:
 
 Do this once per database (not per device) — every machine you log time from should point at the *same* server so they share one ledger. If the app can't reach the database when you run it, it stops immediately with a clear error rather than logging time it can't record.
 
+### Upgrading an existing database
+
+If your database was created before the timestamp fix, apply the new columns and
+then recompute the fingerprints of your existing rows:
+
+```bash
+mysql -u root -p timelogger < sql/03_add_slot_and_fingerprint_version.sql
+uv run scripts/migrate_fingerprints.py --dry-run   # see what would change
+uv run scripts/migrate_fingerprints.py             # apply
+```
+
+**This step matters.** An item's identity used to be derived from the timestamp,
+which was being built incorrectly. Now that timestamps are correct, the same CSV
+row produces a different value — so without this migration every item you'd
+already logged would look new and be sent to JIRA a second time. Both commands
+are safe to re-run; fresh installs can skip this entirely.
+
 ### Migrating existing history
 
 If you were using an older version of this tool that stored the ledger as a local `state/logged.json` file, migrate that history into the database with:
@@ -122,7 +139,13 @@ Once complete, you can close the WSL terminal/shell.
 
 You can safely re-run the same day's file multiple times — and from multiple devices. Every worklog that JIRA accepts (HTTP 201) is recorded in the `logged_worklogs` table (see "Database setup" above), and on subsequent runs those items are skipped — so if you add a few more entries to the same CSV later in the day and re-run, only the newly added items are logged. Because the ledger is a shared database rather than a per-device file, this works the same way whether you're re-running on the same machine or logging the rest of the day from a different one.
 
-An item's identity is `JIRA issue + start time + duration`; the description is deliberately excluded, so fixing a typo in a description and re-running will **not** create a duplicate worklog.
+An item's identity is `JIRA issue + time slot + duration`, where the time slot is the local wall-clock time (`2025-07-09T08:30`) with no UTC offset. The description is deliberately excluded, so fixing a typo and re-running will **not** create a duplicate worklog; the offset is excluded so that changing `TIMEZONE` can't invalidate your whole ledger either.
+
+### Timezones
+
+Times in the CSV are local wall-clock times. The tool attaches your timezone to them and sends JIRA a correctly-offset ISO-8601 timestamp (e.g. `2025-07-09T08:30:00.000+0200`), so JIRA records the right instant. Set `TIMEZONE` in `.env` to any IANA zone name; it defaults to `Africa/Johannesburg`. Daylight saving is handled automatically for zones that observe it.
+
+> If your worklogs previously appeared at the right time in JIRA and now look shifted, check the timezone on your **JIRA profile** — the old code compensated for a UK-timezone display by shifting the hour, which is no longer needed.
 
 Items are recorded one at a time, only after JIRA confirms them, so a failed item is retried on the next run and an interrupted run never double-logs the items that already succeeded.
 

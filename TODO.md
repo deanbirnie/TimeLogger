@@ -13,10 +13,10 @@ Priority key:
 
 ## P0 — Fix first (wrong data reaches JIRA)
 
-- [ ] **B1** Malformed CSV row duplicates the previous row's worklog (and crashes on a bad first row). — `build_data`
-- [ ] **B3** Times before 01:00 produce a negative, invalid hour. — `create_datetime`
-- [ ] **B2** Hours/minutes not zero-padded in the JIRA timestamp. — `create_datetime`
-- [ ] **B4** Timezone conversion is a hardcoded "subtract one hour" hack (wrong half the year / outside UK). — `create_datetime`
+- [x] **B1** Malformed CSV row duplicates the previous row's worklog (and crashes on a bad first row). — `build_data`
+- [x] **B3** Times before 01:00 produce a negative, invalid hour. — `create_datetime`
+- [x] **B2** Hours/minutes not zero-padded in the JIRA timestamp. — `create_datetime`
+- [x] **B4** Timezone conversion is a hardcoded "subtract one hour" hack (wrong half the year / outside UK). — `create_datetime`
 
 > B2–B4 are best fixed together via a proper `zoneinfo` datetime conversion (**I2** timezone config).
 
@@ -30,19 +30,19 @@ Priority key:
 
 ## P2 — Robustness, UX, tests
 
-- [ ] **B7** CSV opened `'r+'` instead of `'r'`. — `build_data`
+- [x] **B7** CSV opened `'r+'` instead of `'r'`. — `build_data`
 - [ ] **I5** HTTP timeout + retries + session reuse. — `log_time`
 - [ ] **I7** Expand test coverage (would have caught B1–B3). — `tests/`
-- [ ] **I6 / B9** Structured skip/error reporting instead of bare `except: pass`.
+- [x] **I6 / B9** Structured skip/error reporting instead of bare `except: pass`.
 - [ ] **B10 / I11** Safer cancel/confirmation prompt (case-insensitive, safe default).
 - [ ] **I3** Argparse for the file path (usable as `logtime "<path>"`).
 - [ ] **I4** Console-script entry point in `pyproject.toml`.
-- [ ] **I10** Run-summary output (totals per day / per run, success/fail counts).
+- [x] **I10** Run-summary output (totals per day / per run, success/fail counts).
 
 ## P3 — Cleanups & cosmetics
 
-- [ ] **B11** Reorder `create_report` checks so the type check precedes `<= 0`.
-- [ ] **B12** `build_data` return type hint says `-> None` but returns a list.
+- [x] **B11** Reorder `create_report` checks so the type check precedes `<= 0`.
+- [x] **B12** `build_data` return type hint says `-> None` but returns a list.
 - [ ] **I8** Prune dependencies (`dotenv` shim, unused `requests-auth`).
 - [ ] **I9** Replace `print` with the `logging` module.
 - [ ] **I12** Remove dead/commented code; finish truncated docstrings.
