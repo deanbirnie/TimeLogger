@@ -61,19 +61,51 @@ def get_db_config() -> dict:
 
 # --- Fingerprinting -----------------------------------------------------------
 
+# Bumped when the fingerprint scheme changes, so rows written by an older
+# scheme can be found and migrated. v1 hashed the raw `started` string, which
+# the pre-fix create_datetime() produced incorrectly (BUGS.md B2-B4); v2 hashes
+# the timezone-independent slot below.
+FINGERPRINT_VERSION = 2
+
+
+def slot_key(started) -> str:
+    """
+    Canonical identity for a work item's time slot: ``YYYY-MM-DDTHH:MM``.
+
+    Taken from the local wall-clock portion of ``started`` and deliberately
+    excluding the trailing UTC offset, so reconfiguring TIMEZONE -- or any
+    future change to how the timestamp is formatted -- cannot change an item's
+    identity and silently invalidate the whole ledger.
+    """
+    date_part, _, time_part = str(started).partition("T")
+    if not time_part:
+        return date_part
+    return f"{date_part}T{':'.join(time_part.split(':')[:2])}"
+
+
+def fingerprint_from_parts(jira_issue, slot, time_spent) -> str:
+    """
+    Hash the natural key (jira_issue, time slot, time_spent_seconds).
+
+    The single place the fingerprint is computed, so the migration script and the
+    running app can never drift apart -- a divergence there would silently break
+    de-duplication.
+    """
+    key = f"{jira_issue}\x00{slot}\x00{time_spent}"
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+
 def fingerprint(item) -> str:
     """
     Stable identity for a work item.
 
-    The natural key is (jira_issue, started, time_spent_seconds); the description
-    is intentionally excluded so that fixing a typo and re-running does not create
-    a duplicate worklog. Returns a SHA-1 hex digest.
+    The description is intentionally excluded so that fixing a typo and
+    re-running does not create a duplicate worklog.
 
     :param item: [time_spent_seconds, started, description, jira_issue]
     """
     time_spent, started, _description, jira_issue = item
-    key = f"{jira_issue}\x00{started}\x00{time_spent}"
-    return hashlib.sha1(key.encode("utf-8")).hexdigest()
+    return fingerprint_from_parts(jira_issue, slot_key(started), time_spent)
 
 
 # --- Database connection -------------------------------------------------------
@@ -165,9 +197,11 @@ def record_logged(conn, ledger: dict, item, source_name: str = "") -> None:
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT IGNORE INTO logged_worklogs "
-            "(fingerprint, jira_issue, started, time_spent_seconds, description, "
-            "source_file, logged_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (fp, jira_issue, started, time_spent, description, source_name, logged_at),
+            "(fingerprint, fingerprint_version, jira_issue, slot, started, "
+            "time_spent_seconds, description, source_file, logged_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (fp, FINGERPRINT_VERSION, jira_issue, slot_key(started), started,
+             time_spent, description, source_name, logged_at),
         )
 
     ledger[fp] = {

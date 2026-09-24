@@ -8,7 +8,7 @@ that is the tool's whole purpose and such errors are tedious to unwind by hand.
 
 ---
 
-## B1 — Malformed CSV row duplicates the previous row's worklog *(Critical)*
+## B1 — Malformed CSV row duplicates the previous row's worklog *(Critical)* — **FIXED**
 
 **File:** `app/time_logger.py` — `build_data()` (lines ~168–184)
 
@@ -44,7 +44,7 @@ assigned and the fall-through raises `NameError`, crashing the whole run.
 
 ---
 
-## B2 — Hours/minutes are not zero-padded in the JIRA timestamp *(High)*
+## B2 — Hours/minutes are not zero-padded in the JIRA timestamp *(High)* — **FIXED**
 
 **File:** `app/time_logger.py` — `create_datetime()` (line ~39)
 
@@ -60,7 +60,7 @@ may reject the timestamp or silently misinterpret it.
 
 ---
 
-## B3 — Times before 01:00 produce a negative hour *(High)*
+## B3 — Times before 01:00 produce a negative hour *(High)* — **FIXED**
 
 **File:** `app/time_logger.py` — `create_datetime()` (line ~37)
 
@@ -76,7 +76,7 @@ rather than integer subtraction on the hour field.
 
 ---
 
-## B4 — Timezone conversion is a hardcoded "subtract one hour" hack *(High)*
+## B4 — Timezone conversion is a hardcoded "subtract one hour" hack *(High)* — **FIXED**
 
 **File:** `app/time_logger.py` — `create_datetime()` (lines ~36–39)
 
@@ -121,7 +121,7 @@ README inviting others to "adapt it to your needs."
 
 ---
 
-## B7 — CSV opened with `'r+'` (read/write) instead of read-only *(Medium)*
+## B7 — CSV opened with `'r+'` (read/write) instead of read-only *(Medium)* — **FIXED**
 
 **File:** `app/time_logger.py` — `build_data()` (line ~161)
 
@@ -144,7 +144,7 @@ uncaught `FileNotFoundError`/`TypeError` and a raw traceback instead of a helpfu
 
 ---
 
-## B9 — Bare `except:` swallows everything *(Low)*
+## B9 — Bare `except:` swallows everything *(Low)* — **FIXED**
 
 **File:** `app/time_logger.py` — `build_data()` (line ~179)
 
@@ -168,7 +168,7 @@ stricter (normalise case, treat `n`/`no` as cancel).
 
 ---
 
-## B11 — `create_report` validation can raise on a non-int duration *(Low)*
+## B11 — `create_report` validation can raise on a non-int duration *(Low)* — **FIXED**
 
 **File:** `app/time_logger.py` — `create_report()` (lines ~77–87)
 
@@ -178,7 +178,7 @@ ever reaches this check (e.g. via the B1 stale-value path), the comparison raise
 
 ---
 
-## B12 — `build_data` return type hint is wrong *(Low / cosmetic)*
+## B12 — `build_data` return type hint is wrong *(Low / cosmetic)* — **FIXED**
 
 **File:** `app/time_logger.py` — `build_data()` (line ~159)
 

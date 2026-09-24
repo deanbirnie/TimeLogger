@@ -3,6 +3,8 @@ import json
 import os
 import sys
 import textwrap
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -36,18 +38,31 @@ def clean_description(description: str) -> str:
     return clean_description
 
 
-def create_datetime(date, started_time):
-    """
-    Takes
-    """
-    date_split = date.split("-")
-    time_split = started_time.split(":")
-    # JIRA expects EU/UK time so subtract an hour (careful if clocks go back)
-    hour = int(time_split[0]) - 1
+def get_timezone():
+    """The timezone the CSV's wall-clock times are in (.env TIMEZONE)."""
+    return ZoneInfo(os.getenv("TIMEZONE") or DEFAULT_TIMEZONE)
 
-    date_time_str = f"{date_split[2]}-{date_split[1]}-{date_split[0]}T{hour}:{time_split[1]}:00.000+0000"
 
-    return date_time_str
+def create_datetime(date, started_time, timezone=None):
+    """
+    Build the ISO-8601 'started' value JIRA expects from a CSV row's date and
+    start time.
+
+    TimeTagger gives local wall-clock time as DD-MM-YYYY and HH:MM. The local
+    time is attached to a real timezone so the correct UTC offset is emitted,
+    rather than shifting the hour by hand and claiming +0000 -- which is what
+    produced unpadded hours, a negative hour before 01:00, and an offset that
+    was only right part of the year (BUGS.md B2-B4).
+
+    :param date: Date as DD-MM-YYYY, e.g. "09-07-2025".
+    :param started_time: 24-hour start time as HH:MM, e.g. "08:30".
+    :return: e.g. "2025-07-09T08:30:00.000+0200"
+    """
+    day, month, year = (int(part) for part in date.split("-"))
+    hour, minute = (int(part) for part in started_time.split(":"))
+    local = datetime(year, month, day, hour, minute, tzinfo=timezone or get_timezone())
+
+    return local.strftime("%Y-%m-%dT%H:%M:%S.000%z")
 
 
 def create_time_spent(time_spent):
@@ -65,6 +80,12 @@ def create_issue_str(issue_str):
     return issue
 
 REPORT_WIDTH = 78
+
+# TimeTagger exports four rows of headers/subtotals before the first work item.
+HEADER_ROWS = 4
+
+# CSV times are local wall-clock; overridable via TIMEZONE in .env.
+DEFAULT_TIMEZONE = "Africa/Johannesburg"
 
 
 def format_duration(seconds) -> str:
@@ -242,33 +263,41 @@ def log_time(issue, description, date_time, time_spent):
 
     return response
 
-def build_data(time_file_path: str) -> None:
+def build_data(time_file_path: str):
+    """
+    Parse the TimeTagger CSV into work items.
+
+    A row that cannot be parsed is recorded and skipped. Previously the append
+    sat outside the try, so a bad row silently re-appended the *previous* row's
+    values -- duplicating that worklog onto the wrong issue, or raising
+    NameError if the very first data row failed (BUGS.md B1).
+
+    :return: tuple(list of work items, list of (row_number, reason) skipped)
+    """
     time_data = []
-    with open(time_file_path, 'r+') as csvfile:
+    skipped = []
+
+    with open(time_file_path, "r", newline="") as csvfile:
         reader = csv.reader(csvfile)
 
-        # report = report(reader)
+        for row_number, row in enumerate(reader, start=1):
+            if row_number <= HEADER_ROWS:
+                continue
+            if not any(field.strip() for field in row):
+                continue  # trailing blank line
 
-        # This loop logs the time
-        row_count = 0
-        for row in reader:
             try:
-                if row_count < 4:
-                    row_count += 1
-                    continue
-                row_count += 1
-
                 time_spent = create_time_spent(row[2])
                 started = create_datetime(row[3], row[4])
                 description = clean_description(row[6])
                 jira_issue = create_issue_str(row[8])
-            except:
-                pass
+            except (ValueError, IndexError) as exc:
+                skipped.append((row_number, f"{type(exc).__name__}: {exc}"))
+                continue
 
-            row_list = [time_spent, started, description, jira_issue]
-            time_data.append(row_list)
+            time_data.append([time_spent, started, description, jira_issue])
 
-    return time_data
+    return time_data, skipped
 
 def find_file(win_path_to_file):
     file_path = win_path_to_file.strip('"')
@@ -298,7 +327,7 @@ if __name__ == "__main__":
     clean_file_path = find_file(win_file_path)
     source_name = os.path.basename(clean_file_path)
 
-    data = build_data(clean_file_path)
+    data, skipped_rows = build_data(clean_file_path)
     valid_list, invalid_items = classify_items(data)
 
     # Split the valid items against the ledger so re-running a file only logs
@@ -308,6 +337,12 @@ if __name__ == "__main__":
 
     print()
     print(render_report(source_name, invalid_items, already_logged, new_items))
+
+    if skipped_rows:
+        print(f"⚠️ {len(skipped_rows)} row(s) could not be read and were skipped:")
+        for row_number, reason in skipped_rows:
+            print(f"  row {row_number}: {reason}")
+        print()
 
     if not new_items:
         print("Nothing new to log - everything valid in this file is already logged.")

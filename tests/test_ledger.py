@@ -123,11 +123,18 @@ class TestRecordLogged(unittest.TestCase):
         cursor.execute.assert_called_once()
         sql, params = cursor.execute.call_args.args
         self.assertIn("INSERT IGNORE INTO logged_worklogs", sql)
-        self.assertEqual(params[0], ledger.fingerprint(ITEM_A))
-        self.assertEqual(params[1], "JIRA-123")
-        self.assertEqual(params[3], 1380)
+
+        (fp, version, jira_issue, slot, started,
+         time_spent, description, source, logged_at) = params
+        self.assertEqual(fp, ledger.fingerprint(ITEM_A))
+        self.assertEqual(version, ledger.FINGERPRINT_VERSION)
+        self.assertEqual(jira_issue, "JIRA-123")
+        self.assertEqual(slot, "2025-07-09T08:30")
+        self.assertEqual(started, ITEM_A[1])
+        self.assertEqual(time_spent, 1380)
+        self.assertEqual(source, "file.csv")
         # A tz-aware logged_at would break MySQL's DATETIME column.
-        self.assertIsNone(params[6].tzinfo)
+        self.assertIsNone(logged_at.tzinfo)
 
         self.assertIn(ledger.fingerprint(ITEM_A), book)
         self.assertEqual(book[ledger.fingerprint(ITEM_A)]["issue"], "JIRA-123")
